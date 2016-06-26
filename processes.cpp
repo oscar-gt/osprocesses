@@ -43,9 +43,6 @@ int main(int argc, char* argv[])
 		cout << "argv[1] == " << command << endl;
 	}
 
-	// Testing the use of execlp(...)
-	execlp("/bin/ls", "ls", "-l", NULL);
-
 	// ***********	Simulating the following command line input:	****************
 	// 						ps -A | grep [command] | wc -l
 	// where:
