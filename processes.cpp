@@ -11,11 +11,20 @@
 // ps -A | grep ttys | wc -l
 //
 // where:
-// child process executes 				wc -l
+// Main process forks and creates a child.
+// ----Main process waits for child.
+//
+// Child process forks and creates grandchild.
+// ---- Child process waits for grandchild.
+//
+// Grandchild forks and creates great grandchild
+// ---- Grandchild process waits for grandchild.
+//
+// great grand child process executes 	ps -A
 //
 // grand child process executes 		grep ttys
-
-// great grand child process executes 	ps -A
+//
+// child process executes 				wc -l
 //
 
 #include <iostream>		// Input/output
@@ -45,12 +54,11 @@ int main(int argc, char* argv[])
 
 	bool verbose = false;			// To debug with cout statements
 	enum {READ, WRITE};				// For pipes
-	pid_t pidA, pidB, pidC, ptid;	// For fork()
-	int childStatus;
+	pid_t pidA, pidB, pidC;			// For fork()
 
 	int execute = 0;				// For execlp(...)
 
-	int dr1, dr2, dr3, dr4;
+	int dr1, dr2, dr3, dr4;			// For dup2() calls
 
 	char buf[BUF_SIZE];
 	bzero(buf, BUF_SIZE);
@@ -67,8 +75,6 @@ int main(int argc, char* argv[])
 		cout << "argvv[1] == " << command << endl;
 	}
 
-	// Testing execlp(...)
-	// execlp("/bin/ls", "ls", "-l", NULL);
 
 	// Setting up pipes
 	if(pipe(pipeA) < 0)
@@ -82,7 +88,8 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 
-	int returnStatus;
+	int returnStatus;	// To wait for offspring processes.
+
 	// Forking for the first time
 	pidA = fork();
 	if(pidA < 0)
@@ -122,7 +129,7 @@ int main(int argc, char* argv[])
 			{
 				if(verbose)
 				{
-					//cout << "This is the great-grandchild process for ps -A" << endl;
+					cout << "This is the great-grandchild process for ps -A" << endl;
 				}
 
 				// Simulating ps -A
@@ -146,6 +153,8 @@ int main(int argc, char* argv[])
 			}
 			// Great-grandchild's parent, so global grandchild process
 			// Grand child process executes grep ttys
+			// ************ NOTE: this grand child process never finishes,
+			// ************		  since it's probably hung on the execlp(grep, grep, tty, null) call.
 			else
 			{
 				//wait(NULL);
@@ -178,14 +187,15 @@ int main(int argc, char* argv[])
 				//cerr << "grand child" << endl;
 				int x2 = 100;
 				// Waiting for great grand child
-				waitpid(pidC, &returnStatus, 0);
+				//waitpid(pidC, &returnStatus, 0);
+
 				cerr << "grand child before 	 execlp(\"/bin/ls\", \"ls\", \"-l\", NULL);" << endl;
 
 				// NOTE: call to execlp should be
 				// execlp("/bin/grep", "grep", "ttys", NULL);,
 				// but I'm trying simpler calls like ls -l
 
-				x2 = execlp("/bin/ls", "ls", "-l", NULL);
+				x2 = execlp("/bin/grep", "grep", command, NULL);
 				cerr << "Failed to run execlp(\"/bin/grep\", \"grep\", command, NULL);" << endl;
 				if(x2 == -1)
 				{
@@ -218,8 +228,9 @@ int main(int argc, char* argv[])
 
 			cerr << "dup2(pipeB[READ], STDIN_FILENO) == " << dr4 << endl;
 
+			cerr << "child before waitpid()" << endl;
 			//Waiting for grandchild to finish
-			waitpid(pidB, &returnStatus, 0);
+			//waitpid(pidB, &returnStatus, 0);
 
 			cerr << "child before 	         execlp(\"/bin/wc\", \"wc\", \"-l\", NULL);" << endl;
 			if(execlp("/bin/wc", "wc", "-l", NULL) == -1)
@@ -233,6 +244,11 @@ int main(int argc, char* argv[])
 	// Parent of child
 	else
 	{
+		close(pipeA[READ]);
+		close(pipeA[WRITE]);
+		close(pipeB[READ]);
+		close(pipeB[WRITE]);
+
 
 		// Waiting for child
 		waitpid(pidA, &returnStatus, 0);
