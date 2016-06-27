@@ -5,9 +5,18 @@
  *      Author: Oscar Garcia-Telles
  */
 
-// Assignment simulates the command line
+// Assignment simulates the unix command line
 // execution of
-// ps -A | grep [command] | wc -l
+//
+// ps -A | grep ttys | wc -l
+//
+// where:
+// child process executes 				wc -l
+//
+// grand child process executes 		grep ttys
+
+// great grand child process executes 	ps -A
+//
 
 #include <iostream>		// Input/output
 #include <unistd.h>		// fork() function
@@ -17,17 +26,13 @@
 
 using namespace std;
 
-
-// ***********		Preliminary notes:		***********
-// Using execlp(...) from the notes
-// execlp("/bin/ls", "ls", "-l", NULL);
-
 // To be used with our buffers used with pipes
 const int BUF_SIZE = 4096;
 
 int main(int argc, char* argv[])
 {
 
+	//test();
 	// Checking for correct number of arguments.
 	// Should be 2: processes <command>
 	if(argc != 2)
@@ -38,12 +43,14 @@ int main(int argc, char* argv[])
 
 		// Correct argument input at this point, continuing...
 
-	bool verbose = true;			// To debug with cout statements
+	bool verbose = false;			// To debug with cout statements
 	enum {READ, WRITE};				// For pipes
 	pid_t pidA, pidB, pidC, ptid;	// For fork()
 	int childStatus;
 
 	int execute = 0;				// For execlp(...)
+
+	int dr1, dr2, dr3, dr4;
 
 	char buf[BUF_SIZE];
 	bzero(buf, BUF_SIZE);
@@ -57,7 +64,7 @@ int main(int argc, char* argv[])
 
 	if(verbose)
 	{
-		cout << "argv[1] == " << command << endl;
+		cout << "argvv[1] == " << command << endl;
 	}
 
 	// Testing execlp(...)
@@ -75,6 +82,7 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 
+	int returnStatus;
 	// Forking for the first time
 	pidA = fork();
 	if(pidA < 0)
@@ -109,66 +117,77 @@ int main(int argc, char* argv[])
 				return -1;
 			}
 
-			// Great-grandchild process for ps -A
+			// Great-grandchild process that executes ps -A.
 			if(pidC == 0)
 			{
 				if(verbose)
 				{
-					cout << "This is the great-grandchild process for ps -A" << endl;
+					//cout << "This is the great-grandchild process for ps -A" << endl;
 				}
+
 				// Simulating ps -A
 
-				// Writing
-				close(pipeA[READ]);	// Disabling reading
+				// Redirecting output to WRITE end of pipe
+				close(pipeA[READ]); 						// Closing unused end
+				dr1 = dup2(pipeA[WRITE], STDOUT_FILENO);	// Redirecting
+				close(pipeA[WRITE]);						// Closing starting side
+				if(dr1 == -1)
+				{
+					cerr << "dup2 in great grandchild failed" << endl;
+				}
 
-				// stdout is now great-grandchild's write pipe
-				dup2(pipeA[WRITE], STDOUT_FILENO);
-				close(pipeA[WRITE]);
-
+				cerr << "great grand child before execlp(\"/bin/ps\", \"ps\", \"-A\", NULL);" << endl;
 				// ps -A call
-				execute = execlp("/bin/ps", "ps", "-A", NULL);
-				if(execute == -1)
+				if(execlp("/bin/ps", "ps", "-A", NULL) == -1)
 				{
 					cerr << "Failed to run execlp(\"/bin/ps\", \"ps\", \"-A\", NULL);" << endl;
 					return -1;
 				}
-
 			}
 			// Great-grandchild's parent, so global grandchild process
+			// Grand child process executes grep ttys
 			else
 			{
-				wait(NULL);
+				//wait(NULL);
+				//waitpid(pidC, &returnStatus, 0);
 				if(verbose)
 				{
 					cout << "This is the grandchild process for grep [cmd]" << endl;
 				}
 
-				// Closing write
-				close(pipeA[WRITE]);
+				// Redirecting stdin to READ end of pipeA
+				close(pipeA[WRITE]);					// Closing unused end
+				dr2 = dup2(pipeA[READ], STDIN_FILENO);	// Redirecting
+				close(pipeA[READ]);						// Closing starting side
+				if(dr2 == -1)
+				{
+					cerr << "dup2 for READ in grandchild failed" << endl;
+				}
+				// close(pipeA[READ]);
 
-				// Redirecting stdin
-				dup2(pipeA[READ], STDIN_FILENO);
-				close(pipeA[READ]);
-
-
-				// Reading into char buffer, not sure if necessary
-//				char buf[BUF_SIZE];
-//				int n = read(pipeA[READ], buf, BUF_SIZE);
-//				buf[n] = '\0';
-//				cout << buf;
-
-				// Piping for writing
-				close(pipeB[READ]);
-
-				// stdout is now grandchild's write pipe
-				dup2(pipeB[WRITE], STDOUT_FILENO);
-
-				// Closing write
-				close(pipeB[WRITE]);
+				// Redirecting output
+				close(pipeB[READ]);							// Closing unused end
+				dr3 = dup2(pipeB[WRITE], STDOUT_FILENO);	// Redirecting
+				close(pipeB[WRITE]);						// Closing starting end
+				if(dr3 == -1)
+				{
+					cerr << "dup2 for WRITE grandchild failed" << endl;
+				}
 
 				// grep [command] call
-				execute = execlp("/bin/grep", "grep", command, NULL);
-				if(execute == -1)
+				//cerr << "grand child" << endl;
+				int x2 = 100;
+				// Waiting for great grand child
+				waitpid(pidC, &returnStatus, 0);
+				cerr << "grand child before 	 execlp(\"/bin/ls\", \"ls\", \"-l\", NULL);" << endl;
+
+				// NOTE: call to execlp should be
+				// execlp("/bin/grep", "grep", "ttys", NULL);,
+				// but I'm trying simpler calls like ls -l
+
+				x2 = execlp("/bin/ls", "ls", "-l", NULL);
+				cerr << "Failed to run execlp(\"/bin/grep\", \"grep\", command, NULL);" << endl;
+				if(x2 == -1)
 				{
 					cerr << "Failed to run execlp(\"/bin/grep\", \"grep\", command, NULL);" << endl;
 					return -1;
@@ -176,34 +195,49 @@ int main(int argc, char* argv[])
 			}
 
 		}
-		// Grandchild's parent, so it's the global child process
+		// Grandchild's parent, so it's the global child process that executes wc -l
 		else
 		{
-			wait(NULL);
+
 			if(verbose)
 			{
 				cout << "This is the child process for wc -l" << endl;
 			}
 
-			// Redirecting stdin
-			close(pipeB[WRITE]);
-			dup2(pipeB[READ], STDIN_FILENO);
-			close(pipeB[READ]);
 
-			execute = execlp("/bin/wc", "wc", "-l", NULL);
-			if(execute == -1)
+			// Redirecting stdin
+			close(pipeB[WRITE]);					// Closing unused end
+			dr4 = dup2(pipeB[READ], STDIN_FILENO);	// Redirecting
+			close(pipeB[READ]);						// Closing starting side
+			if(dr4 == -1)
+			{
+				cerr << "dup2 in child failed" << endl;
+			}
+			close(pipeB[READ]);
+			//close(pipeB[WRITE]);
+
+			cerr << "dup2(pipeB[READ], STDIN_FILENO) == " << dr4 << endl;
+
+			//Waiting for grandchild to finish
+			waitpid(pidB, &returnStatus, 0);
+
+			cerr << "child before 	         execlp(\"/bin/wc\", \"wc\", \"-l\", NULL);" << endl;
+			if(execlp("/bin/wc", "wc", "-l", NULL) == -1)
 			{
 				cerr << "Failed to run execlp(\"/bin/wc\", \"wc\", \"-l\", NULL);" << endl;
 				return -1;
 			}
-
 		}
 
 	}
 	// Parent of child
 	else
 	{
-		wait(NULL);
+
+		// Waiting for child
+		waitpid(pidA, &returnStatus, 0);
+
+		cerr << "Hi from parent process" << endl;
 		if(verbose)
 		{
 			cout << "This is the global parent process, done" << endl;
@@ -213,17 +247,6 @@ int main(int argc, char* argv[])
 
 	return 0;
 
-
-
-
-	// ***********	Simulating the following command line input:	****************
-	// 						ps -A | grep [command] | wc -l
-	// where:
-	// child process executes 				wc -l
-	//
-	// grand child process executes 		grep [command]
-
-	// great grand child process executes 	ps -A
 }
 
 
